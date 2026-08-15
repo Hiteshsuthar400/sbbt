@@ -273,8 +273,18 @@ def main() -> int:
         p.print_help()
         return 2
 
-    selected = ALL_TOOLS if not args.tools else [t.strip() for t in args.tools.split(",") if t.strip()]
     tools_on_path = detect_tools()
+    # Auto-select only tools that are actually on PATH when --tools is not provided.
+    installed_tools = [t for t, path in tools_on_path.items() if path]
+    if not args.tools:
+        selected = [t for t in ALL_TOOLS if t in installed_tools]
+        logger.info("No --tools specified; auto-selecting %d tool(s) detected on PATH: %s", len(selected), ", ".join(selected) if selected else "none")
+    else:
+        requested = [t.strip() for t in args.tools.split(",") if t.strip()]
+        missing = [t for t in requested if t not in installed_tools]
+        selected = [t for t in requested if t in installed_tools]
+        if missing:
+            logger.warning("Requested tools not found on PATH and will be skipped: %s", ", ".join(missing))
 
     primary = args.domain if args.domain else os.path.basename(args.targets_file)
     outdir = ensure_domain_outdir(args.outdir, primary)
