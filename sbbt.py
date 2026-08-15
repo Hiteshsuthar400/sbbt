@@ -409,20 +409,23 @@ def main() -> int:
         port_tasks = []
         if "naabu" in selected and tools_on_path.get("naabu") and os.path.exists(subdomains_file):
             naabu_out = os.path.join(outdir, "naabu.txt")
-            port_tasks.append(("naabu", TOOL_COMMANDS["naabu"](subdomains_file, naabu_out), naabu_out))
+            naabu_cmd = TOOL_COMMANDS["naabu"](subdomains_file, naabu_out)
+            port_tasks.append(("naabu", naabu_cmd, naabu_out))
         # masscan is intrusive; respect --yes and intrusive stage
         if "masscan" in selected and tools_on_path.get("masscan") and os.path.exists(subdomains_file):
             if not args.yes:
                 logger.warning("masscan is intrusive and requires --yes to run; skipping")
             else:
                 masscan_out = os.path.join(outdir, "masscan.txt")
-                port_tasks.append(("masscan", TOOL_COMMANDS["masscan"](subdomains_file, masscan_out), masscan_out))
+                masscan_cmd = TOOL_COMMANDS["masscan"](subdomains_file, masscan_out)
+                port_tasks.append(("masscan", masscan_cmd, masscan_out))
         if port_tasks and not args.dry_run:
             run_tasks_concurrent(port_tasks, workers=args.workers, stage_name="ports")
 
     # Nmap (may consume naabu results)
     if stage_enabled("ports") and "nmap" in selected and tools_on_path.get("nmap"):
-        nmap_in = os.path.join(outdir, "naabu.txt") if os.path.exists(os.path.join(outdir, "naabu.txt")) else subdomains_file
+        nmap_exists = os.path.exists(os.path.join(outdir, "naabu.txt"))
+        nmap_in = os.path.join(outdir, "naabu.txt") if nmap_exists else subdomains_file
         if os.path.exists(nmap_in):
             prefix = os.path.join(outdir, "nmap")
             cmd = TOOL_COMMANDS["nmap"](nmap_in, prefix)
@@ -437,15 +440,18 @@ def main() -> int:
         if "ffuf" in selected and tools_on_path.get("ffuf") and args.domain:
             ffuf_out = os.path.join(outdir, "ffuf.txt")
             url_template = f"https://FUZZ.{args.domain}/"
-            content_tasks.append(("ffuf", TOOL_COMMANDS["ffuf"](url_template, ffuf_out), ffuf_out))
+            ffuf_cmd = TOOL_COMMANDS["ffuf"](url_template, ffuf_out)
+            content_tasks.append(("ffuf", ffuf_cmd, ffuf_out))
         if "gobuster" in selected and tools_on_path.get("gobuster") and args.domain:
             gob_out = os.path.join(outdir, "gobuster.txt")
             url = f"https://{args.domain}/"
-            content_tasks.append(("gobuster", TOOL_COMMANDS["gobuster"](url, gob_out), gob_out))
+            gob_cmd = TOOL_COMMANDS["gobuster"](url, gob_out)
+            content_tasks.append(("gobuster", gob_cmd, gob_out))
         if "dirsearch" in selected and tools_on_path.get("dirsearch") and args.domain:
             dir_out = os.path.join(outdir, "dirsearch.txt")
             url = f"https://{args.domain}/"
-            content_tasks.append(("dirsearch", TOOL_COMMANDS["dirsearch"](url, dir_out), dir_out))
+            dir_cmd = TOOL_COMMANDS["dirsearch"](url, dir_out)
+            content_tasks.append(("dirsearch", dir_cmd, dir_out))
         if content_tasks and not args.dry_run:
             run_tasks_concurrent(content_tasks, workers=args.workers, stage_name="content")
 
