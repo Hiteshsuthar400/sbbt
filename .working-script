@@ -1,1 +1,53 @@
-
+Testing Tools List :  
+1. Reconnaissance
+  a. Host Information: metagoofil, spiderfoot, spiderfoot-cli
+  b. Identity Information: email2phonenumber, emailharvester, instaloader, linkedin2username, photon, sherlock, tookie-osint
+  c. Network Information: amass, autorecon, dmitry, legion, nmap, zenmap, theHarvester, unicornscan
+  d. Network Information: DNS: dnsmap, dnsrecon, dnsenum, massdns, dnstracer, dnswalk
+  e. Web Scanning: assetfinder, arjun, dirb, dirbuster, dirsearch, feroxbuster, ffuf, finalrecon, findomain, gobuster, gospider, lbd, parsero, recon-ng, subfinder, sublist3r, uniscan-gui, urlcrazy, uro, wfuzz, wpprobe
+2. Vulnerability Scanning
+  a. Vulnerability Scanning: nmap, zenmap, CAT, gvm-start, heartleech, owasp-mantra-ff
+  b. Web Vulnerability Scanning: burpsuite, caido, caido-cli, crlfuzz, davtest, joomscan, nikto, nuclei, paros, skipfish, sstimap, subjack, tinja, wapiti, watobo, wcvs, webscarab, whatweb, wpscan, zaproxy
+3. Resource Development
+  a. Compilers, Decompilers & Code Analysis: code-oss, donut, sickle-pdk, wixl, wmic, wmis, pyinstaller, olevba, olefile, afl-fuzz, bed, generic_chunked, generic_listen_tcp, generic_send_tcp, generic_send_udp, sfuzz, msf-nasm_shell, msfvenom, msfpc, shellnoob, clang, clang++, edb, ollydbg, gef, gdb, cstool, ghidra, radare2, rizin, cutter, recstudio, recstudio-cli, apktool, bytecode-viewer, jadx-gui, javasnoop, jd-gui, d2j-dex2jar, pompem, searchsploit, exploitdb-papers
+4. Initial Access
+  a. Initial Access & Exploitation: dns-rebind, gophish-start, setoolkit, metasploit-framework, sqlmap, sqlninja, sqlsus, jsql, commix, jboss-linux, jboss-win
+6. Execution
+  a. Execution Engines: armitage, metasploit-framework, evilgrade, beef-xss-start, xsser, nishang, powersploit
+7. Persistence
+  a. Webshells & Backdoors: laudanum, phpggc, seclists, webacoo, webshells, weevely, backdoor-factory, cymothoa
+8. Privilege Escalation
+  a. Privilege Escalation Tools: lynis, metasploit-framework, peass, linpeas, winpeas, unix-privesc-check, bloodyad
+9. Defense Evasion
+  a. Pass-the-Hash & Obfuscation: sniffjoke, ftest, fragrouter, macchanger, outguess, steghide, stegosuite, stegsnow, donut, exe2hex, msfvenom, shellter, veil, ccrypt, padbuster
+10. Credential Access
+  a. Credential Dumping & Password Attacks: responder, cewl, crunch, hashcat, hydra, hydra-gtk, john, medusa, ncrack, ophcrack, wordlists, netexec
+11. Discovery
+  a. Network Service Discovery: amass, autorecon, masscan, nmap, zenmap, sctpscan, unicornscan, ike-scan
+  b. SSL / TLS: sslscan, sslyze, tlssled
+  c. SNMP: snmp-check, braa, onesixtyone
+  d. Network Sniffing: above, arpspoof, darkstat, dnschef, driftnet, dsniff, hexinject, netsniff-ng, wireshark, scapy, tcpdump, tcpflow
+  e. Remote System Discovery: arping, arpwatch, atk6-thcping6, fierce, fping, hping3, iputils-arping, p0f
+  f. Account Discovery: apache-users, smtp-user-enum
+  g. Network Share Discovery: crackmapexec, enum4linux, enum4linux-ng, nbtscan, netexec, smbclient, smbmap
+  h. Process Discovery: pspy, pspy-binaries
+  i. System Network Configuration Discovery: 0trace.sh, ass, cdp, intrace, netdiscover, netmask, sara, yersinia
+  j. Network Security Appliances: firewalk, tcpreplay, wafw00f
+  k. Databases: impacket-mssqlclient, mdb-sql, mysql, oscanner, sidguess, sqlitebrowser, tnscmd10g
+  l. SMTP: mxcheck, smtp-user-enum, swaks
+  m. Cisco Tools: cge.pl, cisco-ocs, cisco-torch, copy-router-config.pl, merge-router-config.pl
+  n. Active Directory: azurehound, bloodhound, bloodhound-python, bloodhound-ce-python, ldeep, sharphound
+  o. VoIP: protos-sip, rtpbreak, rtpinsertsound, rtpmixsound, siparmyknife, sipp, sippts, sipsak, svcrash, svmap, svreport, svwar, voiphopper, ohrwurm
+12. Lateral Movement
+  a. Pass-the-Hash & Remote Execution: crackmapexec, evil-winrm, evil-winrm-py, impacket-scripts, mimikatz, netexec, passing-the-hash, rubeus, smbmap, xfreerdp3, impacket-smbexec, impacket-psexec, rdesktop
+13. Collection
+  a. MITM & Web Harvesting: httrack, ettercap-text-only, ettercap, evilginx2, fiked, fluxion, mitmproxy, mitm6, ssldump, sslsplit, sslsniff, wifipumpkin3, ferret-sidejack, hamster-sidejack, copy-router-config.pl, merge-router-config.pl
+14. Exfiltration
+  a. Exfiltration Tools: netcat, impacket-smbserver, goshs, raven
+15. Impact
+  a. DoS & Stress Testing: dhcpig, goldeneye, iaxflood, inviteflood, mdk3, rtpflood, siege, slowhttptest, t50, thc-ssl-dos, scapy
+16. Services and Other Tools
+  a. Reporting Tools: cherrytree, dradis-start, faraday-start, maltego, obsidian, pipal, recordmydesktop, redeye-start, cutycapt, eyewitness, witnessme
+  b. Laboratories: juice-shop-start, dvwa-start
+  c. System Services & Management Controls: beef-xss-start, beef-xss-stop, defectdojo-start, defectdojo-stop, dradis-start, dradis-stop, dvwa-start, dvwa-stop, faraday-start, faraday-stop, gophish-start, gophish-stop, gvm-check-setup, gvm-setup, gvm-start, gvm-stop, juice-shop-start, juice-shop-stop, portspoof-start, portspoof-stop, redeye-start, redeye-stop, starkiller-start, starkiller-stop, thehive-start, thehive-stop, xplico-webui-start, xplico-webui-stop
+  d. CLI & AI Utilities: arsenal-ng, code-oss, gemini-cli, hexstrike_server, kali-tweaks, pwsh, root-terminal, snapper-gui, shell-gpt, tailscale
