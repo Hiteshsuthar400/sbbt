@@ -101,6 +101,7 @@ STAGE_TOOLS = {
 
 
 def detect_tools() -> Dict[str, Optional[str]]:
+    """Detect available tools on PATH."""
     found = {}
     for t in ALL_TOOLS:
         found[t] = shutil.which(t)
@@ -108,6 +109,7 @@ def detect_tools() -> Dict[str, Optional[str]]:
 
 
 def ensure_domain_outdir(base_out: str, domain: str) -> str:
+    """Ensure domain output directory exists and create latest symlink."""
     timestamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     domain_dir = os.path.join(base_out, domain)
     out_dir = os.path.join(domain_dir, timestamp)
@@ -117,10 +119,10 @@ def ensure_domain_outdir(base_out: str, domain: str) -> str:
         if os.path.islink(latest_link) or os.path.exists(latest_link):
             try:
                 os.remove(latest_link)
-            except Exception:
+            except (OSError, FileNotFoundError):
                 pass
         os.symlink(out_dir, latest_link)
-    except Exception:
+    except (OSError, FileExistsError, NotImplementedError):
         logger.debug("Could not create symlink %s -> %s (platform may not support symlinks)", latest_link, out_dir)
     return out_dir
 
@@ -153,7 +155,7 @@ def run_tool(cmd: List[str], out_file: Optional[str] = None, cwd: Optional[str] 
         else:
             # let tool write its own file (or discard output)
             # We still attach stdout/stderr to devnull to avoid flooding the runner
-            with open(os.devnull, "w") as devnull:
+            with open(os.devnull, "w", encoding="utf-8") as devnull:
                 p = subprocess.Popen(cmd, stdout=devnull, stderr=subprocess.STDOUT, cwd=cwd, text=True)
                 rc = p.wait()
             return rc, out_file or ""
@@ -204,6 +206,7 @@ def run_tasks_concurrent(tasks: List[Tuple[str, List[str], str]], workers: int =
 
 
 def read_lines_strip(path: str) -> List[str]:
+    """Read lines from file, strip whitespace, and return non-empty lines."""
     try:
         with open(path, "r", encoding="utf-8") as fh:
             return [l.strip() for l in fh if l.strip()]
@@ -215,7 +218,9 @@ def gather_ct(domain: str, outpath: str) -> None:
     """Query crt.sh (JSON) for CT entries (simple, widely-available passive source)."""
     out = outpath
     try:
-        import urllib.request, urllib.parse, json
+        import urllib.request
+        import urllib.parse
+        import json
         q = urllib.parse.quote_plus(f"%.{domain}")
         url = f"https://crt.sh/?q={q}&output=json"
         logger.info("Querying crt.sh for %s", domain)
@@ -243,6 +248,7 @@ def gather_ct(domain: str, outpath: str) -> None:
 
 
 def main() -> int:
+    """Main entry point for sbbt recon orchestration."""
     p = argparse.ArgumentParser(
         description="sbbt: small, professional-looking single-domain recon runner (staged)",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -316,7 +322,8 @@ def main() -> int:
             if os.path.exists(crt_out):
                 with open(subdomains_file, "a", encoding="utf-8") as fh:
                     fh.write("\n")
-                    fh.write(open(crt_out, "r", encoding="utf-8").read())
+                    with open(crt_out, "r", encoding="utf-8") as crt_fh:
+                        fh.write(crt_fh.read())
 
     # Passive stage: run passive tools concurrently
     if stage_enabled("passive"):
@@ -445,7 +452,9 @@ def main() -> int:
     # sqlmap (intrusive) stage
     if "sqlmap" in selected and tools_on_path.get("sqlmap"):
         if not args.yes:
-            logger.warning("sqlmap is intrusive; re-run with --yes to enable or omit sqlmap from --tools")
+            logger.warning(
+                "sqlmap is intrusive; re-run with --yes to enable or omit sqlmap from --tools"
+            )
         else:
             target = None
             if os.path.exists(httpx_out):
@@ -471,7 +480,9 @@ def main() -> int:
         if args.dry_run:
             logger.info("DRY RUN: %s", " ".join(cmd))
         else:
-            run_tasks_concurrent([("nuclei", cmd, nuclei_out)], workers=args.workers, stage_name="vuln")
+            run_tasks_concurrent(
+                [("nuclei", cmd, nuclei_out)], workers=args.workers, stage_name="vuln"
+            )
 
     logger.info("sbbt run complete. Check %s for outputs", outdir)
     return 0
