@@ -39,6 +39,8 @@ TOOL_COMMANDS = {
     "assetfinder": lambda domain, out: ["assetfinder", "--subs-only", domain],
     "amass": lambda domain, out: ["amass", "enum", "-d", domain, "-o", out],
     "subfinder": lambda domain, out: ["subfinder", "-d", domain, "-silent", "-o", out],
+    "findomain": lambda domain, out: ["findomain", "-t", domain, "-u", out],
+    "shuffledns": lambda infile, out: ["shuffledns", "-list", infile, "-r", "/etc/resolv.conf", "-o", out],
     "sublist3r": lambda domain, out: ["sublist3r", "-d", domain, "-o", out],
     "waybackurls": lambda domain, out: ["waybackurls", domain],
     "gau": lambda domain, out: ["gau", domain],
@@ -60,6 +62,8 @@ ALL_TOOLS = [
     "assetfinder",
     "amass",
     "subfinder",
+    "findomain",
+    "shuffledns",
     "sublist3r",
     "waybackurls",
     "gau",
@@ -109,8 +113,8 @@ def run_command(cmd: List[str], cwd: Optional[str] = None, out_file: Optional[st
             proc = subprocess.run(" ".join(cmd) if isinstance(cmd, list) else cmd, shell=True, check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             if out_file:
                 with open(out_file, "w", encoding="utf-8") as fh:
-                    fh.write(proc.stdout)
-            print(proc.stdout)
+                    fh.write(proc.stdout or "")
+            print(proc.stdout or "")
             return proc.returncode
         else:
             with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd, text=True) as p:
@@ -136,213 +140,166 @@ def read_lines_strip(path: str) -> List[str]:
         return []
 
 
+def gather_ct(domain: str, outpath: str) -> None:
+    """Query crt.sh (JSON) for CT entries (simple, widely-available passive source)."""
+    out = outpath
+    try:
+        import urllib.request, urllib.parse, json
+        q = urllib.parse.quote_plus(f"%.{domain}")
+        url = f"https://crt.sh/?q={q}&output=json"
+        logger.info("Querying crt.sh for %s", domain)
+        with urllib.request.urlopen(url, timeout=30) as r:
+            raw = r.read().decode("utf-8", errors="ignore")
+        # crude JSON parse; crt.sh sometimes returns non-JSON; catch exceptions
+        try:
+            obj = json.loads(raw)
+            names = set()
+            for e in obj:
+                nv = e.get("name_value") or ""
+                for n in nv.splitlines():
+                    n = n.strip().lstrip("*.").lower()
+                    if n:
+                        names.add(n)
+            with open(out, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(sorted(names)) + ("\n" if names else ""))
+        except Exception:
+            # fallback: extract host-like tokens
+            lines = {tok.strip().lstrip("*.").lower() for tok in raw.replace('"', " ").split() if domain in tok}
+            with open(out, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(sorted(lines)) + ("\n" if lines else ""))
+    except Exception as e:
+        logger.warning("crt.sh query failed: %s", e)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="sbbt: small bug-hunting / recon runner (expanded tools)")
-    p.add_argument("--domain", help="Domain to target")
-    p.add_argument("--outdir", default="outputs", help="Base outputs directory (default: outputs)")
+    p.add_argument("--domain", help="Target domain")
+    p.add_argument("--outdir", default="outputs", help="Base outputs directory")
     p.add_argument("--targets-file", help="Optional file with targets (one per line)")
-    p.add_argument("--tools", help=f"Comma-separated list of tools to run (default: all). Options: {', '.join(ALL_TOOLS)}")
-    p.add_argument("--yes", action="store_true", help="Assume yes for any prompts (required for intrusive tools like masscan/sqlmap)")
-    p.add_argument("--dry-run", action="store_true", help="Show what would run but do not execute")
-    args, extra = p.parse_known_args()
+    p.add_argument("--tools", help=f"Comma-separated tools to run (default: all). Options: {', '.join(ALL_TOOLS)}")
+    p.add_argument("--yes", action="store_true", help="Allow intrusive tools (masscan, sqlmap, etc.)")
+    p.add_argument("--dry-run", action="store_true", help="Show commands but do not execute")
+    args, _ = p.parse_known_args()
 
     if not args.domain and not args.targets_file:
         logger.error("Either --domain or --targets-file is required")
         p.print_help()
         return 2
 
-    selected = ALL_TOOLS
-    if args.tools:
-        selected = [t.strip() for t in args.tools.split(",") if t.strip()]
-
+    selected = ALL_TOOLS if not args.tools else [t.strip() for t in args.tools.split(",") if t.strip()]
     tools_on_path = detect_tools()
 
-    # Prepare outdir
-    primary_target = args.domain if args.domain else os.path.basename(args.targets_file)
-    outdir = ensure_domain_outdir(args.outdir, primary_target)
-    logger.info("Outputs will be written to %s", outdir)
+    primary = args.domain if args.domain else os.path.basename(args.targets_file)
+    outdir = ensure_domain_outdir(args.outdir, primary)
+    logger.info("Outputs to %s", outdir)
 
-    # Shared files
     subdomains_file = os.path.join(outdir, "subdomains.txt")
 
-    # If a targets file was provided, copy it to outdir and use it
+    # copy targets-file if provided
     if args.targets_file:
         targets = read_lines_strip(args.targets_file)
         if targets:
             with open(subdomains_file, "w", encoding="utf-8") as fh:
                 fh.write("\n".join(targets) + "\n")
-            logger.info("Copied %d targets from %s to %s", len(targets), args.targets_file, subdomains_file)
+            logger.info("Copied %d targets to %s", len(targets), subdomains_file)
 
-    # 1) Assetfinder
-    if "assetfinder" in selected:
-        if tools_on_path.get("assetfinder"):
-            out = os.path.join(outdir, "assetfinder.txt")
-            cmd = TOOL_COMMANDS["assetfinder"](args.domain, out)
-            if args.dry_run:
-                logger.info("DRY RUN: %s", " ".join(cmd))
-            else:
-                rc = run_command(cmd, out_file=out)
-                if rc == 0:
-                    with open(subdomains_file, "a", encoding="utf-8") as fh:
-                        fh.write("\n")
-                        fh.write(open(out, "r", encoding="utf-8").read())
-        else:
-            logger.debug("assetfinder not found; skipping")
-
-    # 2) subfinder
-    if "subfinder" in selected:
-        if tools_on_path.get("subfinder"):
-            out = os.path.join(outdir, "subfinder.txt")
-            cmd = TOOL_COMMANDS["subfinder"](args.domain, out)
-            if args.dry_run:
-                logger.info("DRY RUN: %s", " ".join(cmd))
-            else:
-                rc = run_command(cmd, out_file=out)
-                if rc == 0 and os.path.exists(out):
-                    with open(subdomains_file, "a", encoding="utf-8") as fh:
-                        fh.write("\n")
-                        fh.write(open(out, "r", encoding="utf-8").read())
-        else:
-            logger.warning("subfinder not found on PATH; skipping")
-
-    # 3) amass
-    if "amass" in selected:
-        if tools_on_path.get("amass"):
-            out = os.path.join(outdir, "amass.txt")
-            cmd = TOOL_COMMANDS["amass"](args.domain, out)
-            if args.dry_run:
-                logger.info("DRY RUN: %s", " ".join(cmd))
-            else:
-                run_command(cmd, out_file=out)
-                if os.path.exists(out):
-                    with open(subdomains_file, "a", encoding="utf-8") as fh:
-                        fh.write("\n")
-                        fh.write(open(out, "r", encoding="utf-8").read())
-        else:
-            logger.debug("amass not found; skipping")
-
-    # 4) sublist3r (if installed)
-    if "sublist3r" in selected:
-        if tools_on_path.get("sublist3r"):
-            out = os.path.join(outdir, "sublist3r.txt")
-            cmd = TOOL_COMMANDS["sublist3r"](args.domain, out)
-            if args.dry_run:
-                logger.info("DRY RUN: %s", " ".join(cmd))
-            else:
-                run_command(cmd, out_file=out)
-                if os.path.exists(out):
-                    with open(subdomains_file, "a", encoding="utf-8") as fh:
-                        fh.write("\n")
-                        fh.write(open(out, "r", encoding="utf-8").read())
-        else:
-            logger.debug("sublist3r not found; skipping")
-
-    # 5) Certificate transparency & archive tools (waybackurls, gau, gauplus)
-    wayback_out = os.path.join(outdir, "wayback_urls.txt")
-    if "waybackurls" in selected and tools_on_path.get("waybackurls"):
+    # 0) Certificate Transparency
+    crt_out = os.path.join(outdir, "crtsh_subdomains.txt")
+    if args.domain:
         if args.dry_run:
-            logger.info("DRY RUN: waybackurls %s", args.domain)
+            logger.info("DRY RUN: crt.sh lookup for %s -> %s", args.domain, crt_out)
         else:
-            rc = run_command(TOOL_COMMANDS["waybackurls"](args.domain, wayback_out), out_file=wayback_out)
-    else:
-        logger.debug("waybackurls not found; skipping")
+            gather_ct(args.domain, crt_out)
+            if os.path.exists(crt_out):
+                with open(subdomains_file, "a", encoding="utf-8") as fh:
+                    fh.write("\n")
+                    fh.write(open(crt_out, "r", encoding="utf-8").read())
 
-    if "gau" in selected and tools_on_path.get("gau"):
-        gau_out = os.path.join(outdir, "gau.txt")
+    # Passive tools: assetfinder, findomain, subfinder, amass, shuffledns, sublist3r
+    passive_tools = ["assetfinder", "findomain", "subfinder", "amass", "shuffledns", "sublist3r"]
+    for t in passive_tools:
+        if t not in selected:
+            continue
+        if not tools_on_path.get(t):
+            logger.debug("%s not present; skipping", t)
+            continue
+        out = os.path.join(outdir, f"{t}.txt")
+        # protect against missing command templates
+        if t not in TOOL_COMMANDS:
+            logger.debug("No command template for %s; skipping", t)
+            continue
+        cmd = TOOL_COMMANDS[t](args.domain, out)
         if args.dry_run:
-            logger.info("DRY RUN: gau %s", args.domain)
+            logger.info("DRY RUN: %s", " ".join(cmd))
         else:
-            run_command(TOOL_COMMANDS["gau"](args.domain, gau_out), out_file=gau_out)
-    else:
-        logger.debug("gau not found; skipping")
+            rc = run_command(cmd, out_file=out)
+            if rc == 0 and os.path.exists(out):
+                with open(subdomains_file, "a", encoding="utf-8") as fh:
+                    fh.write("\n")
+                    with open(out, "r", encoding="utf-8") as rf:
+                        fh.write(rf.read())
 
-    if "gauplus" in selected and tools_on_path.get("gauplus"):
-        gauplus_out = os.path.join(outdir, "gauplus.txt")
+    # Archives/Endpoints: waybackurls, gau, gauplus, hakrawler
+    archive_tools = ["waybackurls", "gau", "gauplus", "hakrawler"]
+    for t in archive_tools:
+        if t not in selected:
+            continue
+        if not tools_on_path.get(t):
+            logger.debug("%s not present; skipping", t)
+            continue
+        out = os.path.join(outdir, f"{t}.txt")
+        if t not in TOOL_COMMANDS:
+            logger.debug("No command template for %s; skipping", t)
+            continue
+        cmd = TOOL_COMMANDS[t](args.domain, out)
         if args.dry_run:
-            logger.info("DRY RUN: gauplus %s", args.domain)
+            logger.info("DRY RUN: %s", " ".join(cmd))
         else:
-            run_command(TOOL_COMMANDS["gauplus"](args.domain, gauplus_out), out_file=gauplus_out)
-    else:
-        logger.debug("gauplus not found; skipping")
+            run_command(cmd, out_file=out)
+            # try to extract hosts to subdomains_file
+            if os.path.exists(out):
+                with open(out, "r", encoding="utf-8", errors="ignore") as fh, open(subdomains_file, "a", encoding="utf-8") as sfh:
+                    for line in fh:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            from urllib.parse import urlparse
+                            h = urlparse(line).hostname or line
+                        except Exception:
+                            h = line
+                        sfh.write(h + "\n")
 
-    # 6) Hakrawler (lightweight crawler for endpoints)
-    if "hakrawler" in selected and tools_on_path.get("hakrawler"):
-        hak_out = os.path.join(outdir, "hakrawler.txt")
-        if args.dry_run:
-            logger.info("DRY RUN: hakrawler -domain %s", args.domain)
-        else:
-            run_command(TOOL_COMMANDS["hakrawler"](args.domain, hak_out), out_file=hak_out)
-    else:
-        logger.debug("hakrawler not found; skipping")
-
-    # Consolidate subdomains from generated files
-    candidates = []
-    for fname in ("assetfinder.txt", "subfinder.txt", "amass.txt", "sublist3r.txt"):
-        path = os.path.join(outdir, fname)
-        if os.path.exists(path):
-            candidates.append(path)
-
-    # If wayback/gau outputs exist, extract hosts and append
-    for fname in ("wayback_urls.txt", "gau.txt", "gauplus.txt", "hakrawler.txt"):
-        path = os.path.join(outdir, fname)
-        if os.path.exists(path):
-            # attempt to extract hostnames
-            with open(path, "r", encoding="utf-8", errors="ignore") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    # naive extraction of hostname
-                    try:
-                        from urllib.parse import urlparse
-                        u = urlparse(line)
-                        host = u.hostname or line
-                    except Exception:
-                        host = line
-                    with open(subdomains_file, "a", encoding="utf-8") as sfh:
-                        sfh.write(host + "\n")
-
-    # Also include any pre-existing subdomains_file content (targets-file case handled earlier)
-
-    # Deduplicate subdomains file
+    # Deduplicate subdomains
     if os.path.exists(subdomains_file):
-        lines = sorted(set(read_lines_strip(subdomains_file)))
+        items = sorted(set(read_lines_strip(subdomains_file)))
         with open(subdomains_file, "w", encoding="utf-8") as fh:
-            fh.write("\n".join(lines) + ("\n" if lines else ""))
-        logger.info("Consolidated subdomains: %d entries", len(lines))
+            fh.write("\n".join(items) + ("\n" if items else ""))
+        logger.info("Consolidated subdomains: %d", len(items))
 
-    # DNS resolution / probing with dnsx
-    if "dnsx" in selected:
-        if tools_on_path.get("dnsx") and os.path.exists(subdomains_file):
-            dnsx_out = os.path.join(outdir, "dnsx.txt")
-            if args.dry_run:
-                logger.info("DRY RUN: dnsx -l %s", subdomains_file)
-            else:
-                run_command(TOOL_COMMANDS["dnsx"](subdomains_file, dnsx_out), out_file=dnsx_out)
+    # DNS resolution / enrichment with dnsx
+    if "dnsx" in selected and tools_on_path.get("dnsx") and os.path.exists(subdomains_file):
+        dnsx_out = os.path.join(outdir, "dnsx.txt")
+        if args.dry_run:
+            logger.info("DRY RUN: dnsx -l %s", subdomains_file)
         else:
-            logger.debug("dnsx not found or no subdomains to resolve; skipping")
+            run_command(TOOL_COMMANDS["dnsx"](subdomains_file, dnsx_out), out_file=dnsx_out)
 
-    # Probe HTTP/HTTPS using httpx
-    if "httpx" in selected:
-        if tools_on_path.get("httpx") and os.path.exists(subdomains_file):
-            httpx_out = os.path.join(outdir, "httpx.json")
-            if args.dry_run:
-                logger.info("DRY RUN: httpx -list %s", subdomains_file)
-            else:
-                run_command(TOOL_COMMANDS["httpx"](subdomains_file, httpx_out), out_file=httpx_out)
+    # HTTP probing with httpx (rate-limited)
+    if "httpx" in selected and tools_on_path.get("httpx") and os.path.exists(subdomains_file):
+        httpx_out = os.path.join(outdir, "httpx.json")
+        if args.dry_run:
+            logger.info("DRY RUN: httpx -list %s", subdomains_file)
         else:
-            logger.debug("httpx not found or no subdomains; skipping")
+            run_command(TOOL_COMMANDS["httpx"](subdomains_file, httpx_out), out_file=httpx_out)
 
-    # Port discovery: naabu (non-intrusive) and masscan (fast, intrusive) and nmap
-    if "naabu" in selected:
-        if tools_on_path.get("naabu") and os.path.exists(subdomains_file):
-            naabu_out = os.path.join(outdir, "naabu.txt")
-            if args.dry_run:
-                logger.info("DRY RUN: naabu -list %s", subdomains_file)
-            else:
-                run_command(TOOL_COMMANDS["naabu"](subdomains_file, naabu_out), out_file=naabu_out)
+    # Port scanning: naabu (non-intrusive), masscan (intrusive), nmap
+    if "naabu" in selected and tools_on_path.get("naabu") and os.path.exists(subdomains_file):
+        naabu_out = os.path.join(outdir, "naabu.txt")
+        if args.dry_run:
+            logger.info("DRY RUN: naabu -list %s", subdomains_file)
         else:
-            logger.debug("naabu not found or no subdomains; skipping")
+            run_command(TOOL_COMMANDS["naabu"](subdomains_file, naabu_out), out_file=naabu_out)
 
     if "masscan" in selected:
         if tools_on_path.get("masscan") and os.path.exists(subdomains_file):
@@ -357,19 +314,16 @@ def main() -> int:
         else:
             logger.debug("masscan not found or no subdomains; skipping")
 
-    if "nmap" in selected:
-        if tools_on_path.get("nmap"):
-            nmap_in = os.path.join(outdir, "naabu.txt") if os.path.exists(os.path.join(outdir, "naabu.txt")) else subdomains_file
-            if os.path.exists(nmap_in):
-                prefix = os.path.join(outdir, "nmap")
-                if args.dry_run:
-                    logger.info("DRY RUN: nmap -iL %s", nmap_in)
-                else:
-                    run_command(TOOL_COMMANDS["nmap"](nmap_in, prefix))
+    if "nmap" in selected and tools_on_path.get("nmap"):
+        nmap_in = os.path.join(outdir, "naabu.txt") if os.path.exists(os.path.join(outdir, "naabu.txt")) else subdomains_file
+        if os.path.exists(nmap_in):
+            prefix = os.path.join(outdir, "nmap")
+            if args.dry_run:
+                logger.info("DRY RUN: nmap -iL %s", nmap_in)
             else:
-                logger.debug("No input for nmap; skipping")
+                run_command(TOOL_COMMANDS["nmap"](nmap_in, prefix))
         else:
-            logger.debug("nmap not found; skipping")
+            logger.debug("No input for nmap; skipping")
 
     # Content discovery: ffuf/gobuster/dirsearch
     if "ffuf" in selected and tools_on_path.get("ffuf") and args.domain:
